@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trade &amp; Build: Market Disruption</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1ee;--panel:#fbfcfa;--ink:#17262b;--mute:#5d6e72;--line:#d3dcd8;--acc:#e9b400;--accink:#17262b;--good:#1f8a5b;--bad:#c2412d;--sky:#dfe8e6;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1b1f;--panel:#16272c;--ink:#e8efec;--mute:#93a7aa;--line:#2a3f45;--sky:#0c161a}}
+:root[data-theme="dark"]{--bg:#0f1b1f;--panel:#16272c;--ink:#e8efec;--mute:#93a7aa;--line:#2a3f45;--sky:#0c161a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Bricolage Grotesque',system-ui,sans-serif;font-size:15px;line-height:1.4}
+#app{display:grid;grid-template-columns:1fr 380px;min-height:100vh}
+#view{position:relative;background:var(--sky);min-height:46vh}
+#cv{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#hud{position:absolute;left:14px;top:12px;right:14px;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-weight:600;font-size:13px}
+#banner{position:absolute;left:14px;right:14px;bottom:14px;background:var(--acc);color:var(--accink);padding:10px 14px;border-radius:10px;font-weight:600;display:none}
+#side{background:var(--panel);border-left:1px solid var(--line);padding:18px;overflow:auto;max-height:100vh}
+h1{font-size:22px;margin:0 0 2px;font-weight:800}
+h2{font-size:16px;margin:16px 0 6px;font-weight:800}
+p{margin:4px 0 8px}.mute{color:var(--mute)}
+.inv{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.it{border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;align-items:center;gap:6px;font-size:13px}
+.it i{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.it b{margin-left:auto;font-size:16px}.it.off{opacity:.35;text-decoration:line-through}
+button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:9px 14px;background:var(--acc);color:var(--accink);cursor:pointer}
+button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+select,input{font:inherit;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--panel);color:var(--ink);width:100%}
+.row{display:grid;grid-template-columns:1fr 64px;gap:6px;margin-bottom:6px}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}.bar>div{height:100%;background:var(--good)}
+#log{font-size:13px;max-height:150px;overflow:auto;border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
+#log div{padding:2px 0}.ok{color:var(--good)}.no{color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:5px 4px;border-bottom:1px solid var(--line)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+@media(max-width:820px){#app{grid-template-columns:1fr}#side{max-height:none;border-left:0;border-top:1px solid var(--line)}#view{height:46vh}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style></head>
+<body>
+<div id="app">
+<div id="view"><canvas id="cv"></canvas><div id="hud"></div><div id="banner"></div></div>
+<aside id="side"></aside>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const ITEMS=[['card','Cardboard','#c9a26b'],['straw','Straws','#e8584f'],['tape','Tape','#f2d43c'],['string','String','#d9d2bd'],['cup','Cups','#4aa3df'],['band','Rubber bands','#8e5bd0']];
+const NAME=Object.fromEntries(ITEMS.map(i=>[i[0],i[1]]));
+const COL=Object.fromEntries(ITEMS.map(i=>[i[0],i[2]]));
+const TEAMS=['You','Team Atlas','Team Birch','Team Cobalt'];
+const CARDS=[
+ {t:'Tape shortage',d:'Tape is unavailable. It no longer counts in builds and can\'t be traded.',ban:'tape'},
+ {t:'Trade freeze',d:'Only 1 trade allowed in the next round.',limit:1},
+ {t:'Cardboard recall',d:'Every team loses half its cardboard.',halve:'card'},
+ {t:'String audit',d:'String is confiscated. It no longer counts and can\'t be traded.',ban:'string'}];
+const rnd=n=>Math.floor(Math.random()*(n+1));
+let S;
+function newGame(){
+ S={phase:'assess',teams:TEAMS.map(()=>Object.fromEntries(ITEMS.map(i=>[i[0],rnd(8)]))),ban:null,left:3,ai:3,log:[],card:null,result:null};
+ S.teams[0].cup=Math.max(S.teams[0].cup,rnd(1)); S.teams[0].tape=Math.min(S.teams[0].tape,3);
+ render();rebuild();
+}
+function calc(m,ban){
+ const g=k=>ban===k?0:m[k];
+ const parts=g('straw')+g('card'),bind=2*g('tape')+g('band')+g('string');
+ const stab=Math.min(1,bind/(parts*0.5+1));
+ const h=(g('straw')*5+g('card')*3)*(0.4+0.6*stab);
+ const cup=g('cup')>0?1:0;
+ return{stab,h,cup,score:Math.round((h*(stab<0.35?0.3:1)+cup*12)*10)/10,falls:stab<0.35};
+}
+function sc(i,m){return calc(m||S.teams[i],S.ban).score}
+function tryTrade(a,give,gq,get,rq){ // team a gives gq of give, receives rq of get from b
+ return null;
+}
+function proposal(b,give,gq,get,rq){ // you give, you get; b=other team index
+ const you=S.teams[0],them=S.teams[b];
+ if(give===get)return'Choose two different materials.';
+ if(S.ban===give||S.ban===get)return'That material is off the market.';
+ if(you[give]<gq)return'You don\'t have enough '+NAME[give]+'.';
+ if(them[get]<rq)return TEAMS[b]+' doesn\'t have enough '+NAME[get]+'.';
+ const y2={...you,[give]:you[give]-gq,[get]:you[get]+rq},t2={...them,[get]:them[get]-rq,[give]:them[give]+gq};
+ const yg=sc(0,y2)-sc(0,you),tg=sc(b,t2)-sc(b,them);
+ if(yg<=0)return'Rejected rule: every trade must benefit both teams. This one doesn\'t help you (+'+yg.toFixed(1)+').';
+ if(tg<=0)return TEAMS[b]+' declined: it wouldn\'t improve their tower.';
+ S.teams[0]=y2;S.teams[b]=t2;
+ return {ok:true,msg:`Deal with ${TEAMS[b]}: gave ${gq} ${NAME[give]}, got ${rq} ${NAME[get]}. You +${yg.toFixed(1)}, them +${tg.toFixed(1)}.`};
+}
+function aiTrades(){ // AI teams trade among themselves
+ for(let n=0;n<14;n++){
+  const a=1+rnd(2),b=1+(a%3),ia=ITEMS[rnd(5)][0],ib=ITEMS[rnd(5)][0];
+  if(ia===ib||S.ban===ia||S.ban===ib)continue;
+  const A=S.teams[a],B=S.teams[b];if(A[ia]<1||B[ib]<1)continue;
+  const A2={...A,[ia]:A[ia]-1,[ib]:A[ib]+1},B2={...B,[ib]:B[ib]-1,[ia]:B[ia]+1};
+  if(sc(a,A2)>sc(a,A)&&sc(b,B2)>sc(b,B)){S.teams[a]=A2;S.teams[b]=B2}
+ }
+}
+function advice(){
+ const m=S.teams[0],base=sc(0),gain=[],cost=[];
+ ITEMS.forEach(([k,n])=>{if(S.ban===k)return;
+  gain.push([k,sc(0,{...m,[k]:m[k]+1})-base]);
+  if(m[k]>0)cost.push([k,base-sc(0,{...m,[k]:m[k]-1})]);});
+ gain.sort((a,b)=>b[1]-a[1]);cost.sort((a,b)=>a[1]-b[1]);
+ const c=calc(m,S.ban);
+ const need=gain[0],spare=cost[0];
+ return `Current estimate: height ${c.h.toFixed(0)} cm, stability ${(c.stab*100).toFixed(0)}%${c.falls?' (likely to collapse)':''}. Best addition: +1 ${NAME[need[0]]} (+${need[1].toFixed(1)} pts). Most spare: ${NAME[spare[0]]} (losing one costs only ${spare[1].toFixed(1)}). Try offering ${NAME[spare[0]]} for ${NAME[need[0]]}. AI can't see what other teams want, so check that the deal helps them too.`;
+}
+function toast(msg,cls){S.log.unshift([msg,cls]);renderLog()}
+const $=s=>document.querySelector(s);
+function inv(i){const m=S.teams[i];return '<div class="inv">'+ITEMS.map(([k,n,c])=>`<div class="it ${S.ban===k?'off':''}"><i style="background:${c}"></i>${n.replace('Rubber bands','Bands')}<b>${m[k]}</b></div>`).join('')+'</div>'}
+function opts(excl){return ITEMS.filter(i=>i[0]!==excl&&S.ban!==i[0]).map(i=>`<option value="${i[0]}">${i[1]}</option>`).join('')}
+function render(){
+ const p=S.phase,side=$('#side');
+ const steps={assess:'1. Assess',trade1:'2. Trade',disrupt:'3. Disruption',trade2:'4. Trade again',test:'5. Build and test'};
+ $('#hud').innerHTML=`<span class="chip">${steps[p]}</span>`+(S.ban?`<span class="chip">${NAME[S.ban]} banned</span>`:'')+(p.startsWith('trade')?`<span class="chip">Trades left: ${S.left}</span>`:'')+`<span class="chip">AI helps left: ${S.ai}</span>`;
+ let h=`<h1>Trade &amp; Build</h1><p class="mute">Build the best tower from uneven materials. Drag the scene to look around.</p><h2>Your materials</h2>${inv(0)}`;
+ const c=calc(S.teams[0],S.ban);
+ h+=`<p style="margin-top:8px">Projected score <b>${c.score}</b> &middot; height ${c.h.toFixed(0)} cm &middot; stability</p><div class="bar"><div style="width:${c.stab*100}%;background:${c.falls?'var(--bad)':'var(--good)'}"></div></div>`;
+ if(p==='assess'){
+  h+=`<h2>Assess what you have</h2><p>Every team has a different pile. A tower needs height (straws, cardboard), binding (tape, string, bands) and a cup on top for a bonus. Binding that is too thin makes it collapse.</p>
+  <div class="actions"><button id="askai" ${S.ai?'':'disabled'}>Ask AI advisor</button><button id="next">Open the market</button></div><p id="aibox" class="mute"></p>`;
+ }else if(p==='trade1'||p==='trade2'){
+  h+=`<h2>Negotiate a trade</h2><p class="mute">Both teams must come out ahead or the deal fails.</p>
+  <label>Trade with</label><select id="tt">${[1,2,3].map(i=>`<option value="${i}">${TEAMS[i]}</option>`).join('')}</select>
+  <label style="display:block;margin-top:6px">You give</label><div class="row"><select id="g">${opts()}</select><input id="gq" type="number" min="1" max="5" value="1"></div>
+  <label>You get</label><div class="row"><select id="r">${opts()}</select><input id="rq" type="number" min="1" max="5" value="1"></div>
+  <div class="actions"><button id="prop" ${S.left?'':'disabled'}>Propose trade</button><button class="sec" id="askai" ${S.ai?'':'disabled'}>Ask AI</button><button class="sec" id="next">${p==='trade1'?'End round':'Go to build'}</button></div><p id="aibox" class="mute"></p>`;
+ }else if(p==='disrupt'){
+  h+=`<h2>Market Disruption: ${S.card.t}</h2><p>${S.card.d}</p><p class="mute">Use AI to re-plan, then trade again.</p><div class="actions"><button id="askai" ${S.ai?'':'disabled'}>Ask AI advisor</button><button id="next">Reopen the market</button></div><p id="aibox" class="mute"></p>`;
+ }else{
+  const r=S.result;
+  if(!r){h+=`<h2>Ready to test</h2><p>Your tower and the rivals' towers get a shake test.</p><div class="actions"><button id="test">Run test</button></div>`}
+  else{h+=`<h2>Results</h2><table><tr><th>Team</th><th>Score</th><th></th></tr>${r.map(x=>`<tr><td>${x.name}</td><td>${x.total}</td><td>${x.falls?'collapsed':'standing'}</td></tr>`).join('')}</table><p><b>${r[0].name===TEAMS[0]?'You win!':r[0].name+' wins.'}</b> Unused AI helps give +4 each, so lean on your own judgment too.</p><div class="actions"><button id="again">Play again</button></div>`}
+ }
+ h+='<div id="log"></div>';
+ side.innerHTML=h;renderLog();wire();
+}
+function renderLog(){const l=$('#log');if(l)l.innerHTML=S.log.slice(0,8).map(x=>`<div class="${x[1]||''}">${x[0]}</div>`).join('')}
+function wire(){
+ const on=(id,f)=>{const e=$(id);if(e)e.onclick=f};
+ on('#askai',()=>{if(!S.ai)return;S.ai--;const t=advice();render();$('#aibox').textContent=t;});
+ on('#prop',()=>{
+  const r=proposal(+$('#tt').value,$('#g').value,+$('#gq').value,$('#r').value,+$('#rq').value);
+  if(typeof r==='string'){toast(r,'no');}
+  else{S.left--;toast(r.msg,'ok');}
+  render();rebuild();
+ });
+ on('#next',()=>{
+  if(S.phase==='assess'){S.phase='trade1';S.left=3;aiTrades();}
+  else if(S.phase==='trade1'){S.phase='disrupt';S.card=CARDS[rnd(3)];
+   if(S.card.ban)S.ban=S.card.ban;
+   if(S.card.halve)S.teams.forEach(m=>m[S.card.halve]=Math.floor(m[S.card.halve]/2));
+   showBanner('Market Disruption: '+S.card.t+'. '+S.card.d);}
+  else if(S.phase==='disrupt'){S.phase='trade2';S.left=S.card.limit||3;aiTrades();}
+  else if(S.phase==='trade2'){S.phase='test';}
+  render();rebuild();
+ });
+ on('#test',runTest);on('#again',newGame);
+}
+function showBanner(t){const b=$('#banner');b.textContent=t;b.style.display='block';setTimeout(()=>b.style.display='none',5000)}
+function runTest(){
+ const res=S.teams.map((m,i)=>{const c=calc(m,S.ban);return{name:TEAMS[i],total:Math.round((c.score+(i===0?S.ai*4:0))*10)/10,falls:c.falls,i}}).sort((a,b)=>b.total-a.total);
+ S.res0=res;S.fall={};res.forEach(r=>{if(r.falls)S.fall[r.i]=0});
+ S.shake=0;S.testing=true;
+ setTimeout(()=>{S.result=res;S.testing=false;render()},2600);
+ $('#test').disabled=true;
+}
+/* ---------- 3D ---------- */
+const cv=$('#cv'),view=$('#view');
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,0.1,100);
+scene.add(new THREE.HemisphereLight(0xffffff,0x6a7a76,0.9));
+const dl=new THREE.DirectionalLight(0xffffff,0.8);dl.position.set(6,10,6);scene.add(dl);
+const root=new THREE.Group();scene.add(root);
+let yaw=0.35,pitch=0.28,dist=15;
+function sprite(txt){const c=document.createElement('canvas');c.width=256;c.height=64;const x=c.getContext('2d');x.fillStyle='rgba(23,38,43,.85)';x.fillRect(0,0,256,64);x.fillStyle='#fff';x.font='bold 30px sans-serif';x.textAlign='center';x.fillText(txt,128,44);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));s.scale.set(2.4,0.6,1);return s}
+const towers=[];
+for(let i=0;i<4;i++){
+ const g=new THREE.Group();g.position.x=(i-1.5)*3.4;root.add(g);
+ const t=new THREE.Mesh(new THREE.BoxGeometry(2.8,0.3,2.8),new THREE.MeshLambertMaterial({color:i?0x7a8a86:0xe9b400}));t.position.y=-0.15;g.add(t);
+ const s=sprite(TEAMS[i]);s.position.y=-0.9;g.add(s);
+ const tw=new THREE.Group();g.add(tw);towers.push(tw);
+}
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.MeshLambertMaterial({color:0x9fb0ac}));floor.rotation.x=-Math.PI/2;floor.position.y=-0.31;root.add(floor);
+const mat=c=>new THREE.MeshLambertMaterial({color:c});
+function rebuild(){
+ towers.forEach((tw,i)=>{
+  while(tw.children.length){const o=tw.children.pop();o.traverse&&o.traverse(x=>{x.geometry&&x.geometry.dispose()})}
+  tw.rotation.set(0,0,0);tw.position.set(0,0,0);
+  const m=S.teams[i],c=calc(m,S.ban),H=Math.max(0.3,c.h*0.075);
+  const g=k=>S.ban===k?0:m[k];
+  const ns=Math.min(g('straw'),10);
+  for(let k=0;k<ns;k++){const a=k/ns*Math.PI*2,r=0.9;
+   const s=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,H,6),mat(COL.straw));
+   s.position.set(Math.cos(a)*r,H/2,Math.sin(a)*r);
+   const lean=(1-c.stab)*0.25*(k%2?1:-1);s.rotation.z=lean;tw.add(s);}
+  const np=Math.min(g('card'),8);
+  for(let k=0;k<np;k++){const y=H*(k+1)/(np+1);
+   const p=new THREE.Mesh(new THREE.BoxGeometry(2.1,0.07,2.1),mat(COL.card));p.position.y=y;tw.add(p);}
+  const nb=Math.min(2*g('tape')+g('band')+g('string'),9);
+  for(let k=0;k<nb;k++){const kind=k<g('tape')*2?'tape':(k<g('tape')*2+g('band')?'band':'string');
+   const ring=new THREE.Mesh(new THREE.TorusGeometry(0.95,0.04,6,24),mat(COL[kind]));
+   ring.rotation.x=Math.PI/2;ring.position.y=H*(k+0.5)/(nb+0.3);tw.add(ring);}
+  if(g('cup')>0){const cup=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.35,0.6,14),mat(COL.cup));cup.position.y=H+0.35;tw.add(cup);}
+ });
+}
+function size(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h,false);renderer.setPixelRatio(Math.min(devicePixelRatio,2));cam.aspect=w/h;cam.updateProjectionMatrix();}
+addEventListener('resize',size);
+let drag=null;
+cv.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!drag)return;yaw+=(e.clientX-drag[0])*0.008;pitch=Math.max(0.05,Math.min(1.2,pitch+(e.clientY-drag[1])*0.006));drag=[e.clientX,e.clientY]});
+cv.addEventListener('pointerup',()=>drag=null);
+cv.addEventListener('wheel',e=>{e.preventDefault();dist=Math.max(8,Math.min(26,dist+e.deltaY*0.01))},{passive:false});
+let t0=performance.now();
+function loop(now){
+ const dt=(now-t0)/1000;t0=now;
+ cam.position.set(Math.sin(yaw)*Math.cos(pitch)*dist,Math.sin(pitch)*dist+2,Math.cos(yaw)*Math.cos(pitch)*dist);
+ cam.lookAt(0,2.2,0);
+ if(S&&S.testing){S.shake=(S.shake||0)+dt;
+  towers.forEach((tw,i)=>{
+   const falls=S.fall&&i in S.fall;
+   if(falls){S.fall[i]+=dt;const f=Math.min(1,Math.max(0,(S.fall[i]-0.8)/1.2));tw.rotation.z=f*1.45*(i%2?1:-1);tw.position.x=f*1.2*(i%2?1:-1);tw.position.y=-f*0.25;}
+   else tw.rotation.z=Math.sin(S.shake*22)*0.012;});
+ }
+ renderer.render(scene,cam);requestAnimationFrame(loop);
+}
+size();newGame();requestAnimationFrame(loop);
+</script>
+</body></html>
